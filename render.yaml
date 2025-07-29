@@ -1,0 +1,9 @@
+services:
+  - type: static
+    name: hardware-store-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false # Set this in the Render dashboard to your backend URL after backend is deployed
