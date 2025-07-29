@@ -45,7 +45,7 @@ export default function Products({ selectedProductSKU }) {
           <img
             src="https://kruyefkcggouvvgldipa.supabase.co/storage/v1/object/public/images-app//Blue-print-tools-icons_lg.png"
             alt="Product"
-            style={{ width: 120, height: 120, objectFit: 'contain', display: 'block', margin: '0 auto 16px auto', background: '#f6f8fa', borderRadius: 12 }}
+            style={{ width: 120, height: 120, objectFit: 'contain', display: 'block', margin: '0 auto 16px auto', background: '#f6f8fa', borderRadius: 12, borderWidth: 1, borderColor: '#dadee6' }}
           />
           <div className="product-details">
             <div className="product-name">{product.name}</div>
