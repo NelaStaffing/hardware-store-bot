@@ -52,6 +52,9 @@ export default function Products({ selectedProductSKU }) {
             <div className="product-desc">{product.description}</div>
             <div className="product-price">${product.price}</div>
             <div className="product-sku">SKU: {product.SKU}</div>
+            {product.aisle_store_location_lititz_pa && (
+              <div className="product-aisle">Aisle: {product.aisle_store_location_lititz_pa}</div>
+            )}
             {product.URL && <a href={product.URL} target="_blank" rel="noopener noreferrer">Product Link</a>}
           </div>
           <div className="product-actions" style={{ display: 'flex', gap: 16, marginTop: 16 }}>
