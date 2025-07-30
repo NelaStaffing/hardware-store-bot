@@ -32,7 +32,10 @@ export default function ShoppingCart() {
   useEffect(() => {
     const loadCart = () => {
       const stored = localStorage.getItem('shoppingList');
-      setCart(stored ? JSON.parse(stored) : []);
+      const parsed = stored ? JSON.parse(stored) : [];
+      // Ensure every item has a quantity of at least 1
+      const normalized = parsed.map(p => ({ ...p, quantity: p.quantity && p.quantity > 0 ? p.quantity : 1 }));
+      setCart(normalized);
     };
     loadCart();
     window.addEventListener('storage', loadCart);
@@ -50,14 +53,30 @@ export default function ShoppingCart() {
     localStorage.setItem('shoppingList', JSON.stringify(updated));
   };
 
+  // Update quantity (delta can be +1 or -1)
+  const updateQuantity = (sku, delta) => {
+    const updated = cart.map(item => {
+      if (item.SKU === sku) {
+        const newQty = Math.max(1, (item.quantity || 1) + delta);
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    });
+    setCart(updated);
+    localStorage.setItem('shoppingList', JSON.stringify(updated));
+  };
+
   // Clear cart
   const clearCart = () => {
     setCart([]);
     localStorage.setItem('shoppingList', '[]');
   };
 
-  // Calculate total
-  const total = cart.reduce((sum, item) => sum + (parseFloat(item.price) || 0), 0);
+  // Calculate total (price * quantity)
+  const total = cart.reduce((sum, item) => {
+    const qty = item.quantity || 1;
+    return sum + ((parseFloat(item.price) || 0) * qty);
+  }, 0);
 
   return (
     <section className="cart-section" style={{ maxWidth: 480, margin: '0 auto', padding: 24 }}>
@@ -80,6 +99,23 @@ export default function ShoppingCart() {
               <div className="cart-name" style={{ fontWeight: 600, color: '#263238' }}>{item.name}</div>
               <div className="cart-price" style={{ color: '#388e3c', fontWeight: 500 }}>${item.price}</div>
               <div className="cart-sku" style={{ color: '#888', fontSize: 12 }}>SKU: {item.SKU}</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                aria-label="Decrease quantity"
+                onClick={() => updateQuantity(item.SKU, -1)}
+                style={{ background: '#e0e0e0', border: 'none', borderRadius: '50%', width: 28, height: 28, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                -
+              </button>
+              <span style={{ minWidth: 24, textAlign: 'center' }}>{item.quantity || 1}</span>
+              <button
+                aria-label="Increase quantity"
+                onClick={() => updateQuantity(item.SKU, 1)}
+                style={{ background: '#e0e0e0', border: 'none', borderRadius: '50%', width: 28, height: 28, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                +
+              </button>
             </div>
             <button
               className="btn-remove"
