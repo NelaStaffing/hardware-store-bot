@@ -88,19 +88,34 @@ export default function ShoppingCart() {
           <div
             className="cart-item"
             key={item.SKU}
-            style={{ display: 'flex', alignItems: 'center', background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 2px 8px #e3e3e3', gap: 16 }}
+            style={{ display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 2px 8px #e3e3e3', gap: 12 }}
           >
-            <img
-              src="https://kruyefkcggouvvgldipa.supabase.co/storage/v1/object/public/images-app//Blue-print-tools-icons_lg.png"
-              alt="Product"
-              style={{ width: 56, height: 56, objectFit: 'contain', background: '#f6f8fa', borderRadius: 8 }}
-            />
-            <div className="cart-details" style={{ flex: 1 }}>
-              <div className="cart-name" style={{ fontWeight: 600, color: '#263238' }}>{item.name}</div>
-              <div className="cart-price" style={{ color: '#388e3c', fontWeight: 500 }}>${item.price}</div>
-              <div className="cart-sku" style={{ color: '#888', fontSize: 12 }}>SKU: {item.SKU}</div>
+            {/* Row 1: image + details + remove button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, width: '100%', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1 }}>
+                <img
+                  src="https://kruyefkcggouvvgldipa.supabase.co/storage/v1/object/public/images-app//Blue-print-tools-icons_lg.png"
+                  alt="Product"
+                  style={{ width: 56, height: 56, objectFit: 'contain', background: '#f6f8fa', borderRadius: 8 }}
+                />
+                <div className="cart-details" style={{ flex: 1 }}>
+                  <div className="cart-name" style={{ fontWeight: 600, color: '#263238' }}>{item.name}</div>
+                  <div className="cart-price" style={{ color: '#388e3c', fontWeight: 500 }}>${item.price}</div>
+                  <div className="cart-sku" style={{ color: '#888', fontSize: 12 }}>SKU: {item.SKU}</div>
+                </div>
+              </div>
+              <button
+                className="btn-remove"
+                style={{ background: '#f44336', border: 'none', borderRadius: '50%', width: 36, height: 36, color: '#fff', fontSize: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Remove"
+                onClick={() => removeFromCart(item.SKU)}
+              >
+                ✕
+              </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+            {/* Row 2: quantity selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
               <button
                 aria-label="Decrease quantity"
                 onClick={() => updateQuantity(item.SKU, -1)}
@@ -117,14 +132,6 @@ export default function ShoppingCart() {
                 +
               </button>
             </div>
-            <button
-              className="btn-remove"
-              style={{ background: '#f44336', border: 'none', borderRadius: '50%', width: 36, height: 36, color: '#fff', fontSize: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              title="Remove"
-              onClick={() => removeFromCart(item.SKU)}
-            >
-              ✕
-            </button>
           </div>
         ))}
       </div>
