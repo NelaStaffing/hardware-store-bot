@@ -14,8 +14,9 @@ export default function ShoppingCart() {
     cart.forEach((item, idx) => {
       // Draw checkbox
       doc.rect(14, y - 4, 5, 5);
-      // Product info
-      doc.text(`${item.name}  ($${item.price})`, 22, y);
+      // Product info with quantity
+      const lineText = `${item.name}  x${item.quantity || 1}  ($${item.price})`;
+      doc.text(lineText, 22, y);
       doc.text(`SKU: ${item.SKU}`, 140, y);
       y += 12;
       // Add page if needed
