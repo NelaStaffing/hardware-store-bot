@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: hardware-store-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && chmod +x node_modules/.bin/react-scripts && npm run build
+    staticPublishPath: build
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false # Set this in the dashboard after backend deploy
