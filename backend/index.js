@@ -82,14 +82,9 @@ app.post('/api/chat', async (req, res) => {
 
     const assistantMsg = await chatAgent(mappedHistory, message || '');
 
-    // Prepare reply for frontend
-    let reply = assistantMsg.content || '';
-    if (assistantMsg.tool_calls?.length) {
-      const call = assistantMsg.tool_calls[0];
-      let args = {};
-      try { args = JSON.parse(call.function.arguments || '{}'); } catch {}
-      reply = JSON.stringify({ tool: call.function.name, tool_input: args });
-    }
+    // Always return the assistant's final natural-language content.
+    // The agent internally loops tools until a final message, so we should not leak tool_calls here.
+    const reply = assistantMsg.content || '';
 
     // Store assistant reply
     await supabase.from('chat_messages').insert({

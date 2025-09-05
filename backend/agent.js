@@ -91,24 +91,29 @@ export async function chatAgent(history = [], userMessage = '') {
     { role: 'user', content: userMessage }
   ];
 
-  // First call – allow tool selection
-  const first = await openai.chat.completions.create({
-    model: MODEL,
-    messages,
-    tools: Object.values(tools).map(t => ({ type: 'function', function: t.schema })),
-    tool_choice: 'auto'
-  });
+  // Loop until there are no more tool calls (max 3 rounds to be safe)
+  let assistantMsg = null;
+  for (let round = 0; round < 3; round++) {
+    const resp = await openai.chat.completions.create({
+      model: MODEL,
+      messages,
+      tools: Object.values(tools).map(t => ({ type: 'function', function: t.schema })),
+      tool_choice: 'auto'
+    });
 
-  let assistantMsg = first.choices[0].message;
+    assistantMsg = resp.choices[0].message;
 
-  // If the model wants to call one or more tools, execute each then call again with results
-  if (assistantMsg.tool_calls?.length) {
-    messages.push(assistantMsg); // record assistant call message first
+    if (!assistantMsg.tool_calls?.length) break; // we have a final message
 
+    // Record the assistant tool call message
+    messages.push(assistantMsg);
+
+    // Execute each tool call and append results
     for (const call of assistantMsg.tool_calls) {
       const tool = tools[call.function.name];
       if (!tool) throw new Error(`Unknown tool: ${call.function.name}`);
-      const args = JSON.parse(call.function.arguments || '{}');
+      let args = {};
+      try { args = JSON.parse(call.function.arguments || '{}'); } catch {}
       const result = await tool.execute(args);
 
       messages.push({
@@ -117,15 +122,8 @@ export async function chatAgent(history = [], userMessage = '') {
         content: JSON.stringify(result)
       });
     }
-
-    const second = await openai.chat.completions.create({
-      model: MODEL,
-      messages,
-      tools: Object.values(tools).map(t => ({ type: 'function', function: t.schema })),
-      tool_choice: 'auto'
-    });
-    assistantMsg = second.choices[0].message;
+    // Next loop iteration will ask the model to summarize with tool results included
   }
 
-  return assistantMsg;
+  return assistantMsg || { role: 'assistant', content: 'Sorry, I could not generate a response.' };
 }
