@@ -1,5 +1,4 @@
-# Ignore environment files in backend
-backend/.env
+
 
 # Node
 node_modules/
@@ -15,8 +14,3 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Env files
-.env
-.env.*
-backend/.env
-frontend/.env

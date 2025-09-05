@@ -334,3 +334,159 @@
     width: 100%;
   }
 }
+
+/* Mobile-first enhancements */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 14px 16px;
+  }
+  .navbar-links { display: none; }
+
+  .mobile-main {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .chatbot-section {
+    min-width: 0;
+    min-height: calc(100vh - 160px);
+    max-height: none;
+    border-radius: 14px;
+    padding: 0;
+  }
+
+  .products-section, .cart-section {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* Ensure modal content fits small screens comfortably */
+  .modal-content { width: 96%; max-height: 90vh; }
+  .modal-body { padding: 12px; }
+  /* Product preview container inside modal should not exceed width */
+  .modal-body .products-section { padding: 16px 14px; max-width: 100%; box-sizing: border-box; }
+  .modal-body .product-card { padding: 14px; }
+
+  /* Drawer width on mobile */
+  .drawer-panel { width: 92vw; max-width: 92vw; }
+
+  /* Floating action buttons */
+  .fab-container {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 1200;
+  }
+  .fab {
+    background: #266eff;
+    color: #fff;
+    border: none;
+    border-radius: 24px;
+    padding: 12px 16px;
+    box-shadow: 0 6px 18px rgba(38,110,255,0.35);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .fab-secondary {
+    background: #263238;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  }
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+.modal-content {
+  background: #fff;
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e9edf3;
+}
+.modal-title { font-weight: 600; }
+.modal-close {
+  background: #f3f4f6;
+  border: none;
+  border-radius: 6px;
+  width: 28px; height: 28px;
+  cursor: pointer;
+}
+.modal-body {
+  padding: 14px;
+  overflow-y: auto;
+  max-height: calc(90vh - 56px);
+}
+
+/* Drawer styles */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 1100;
+}
+.drawer-panel {
+  height: 100vh;
+  background: #fff;
+  box-shadow: -6px 0 18px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  width: 420px;            /* desktop/base width */
+  max-width: 94vw;         /* prevent overflow on small screens */
+}
+.drawer-panel.right { right: 0; }
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e9edf3;
+}
+.drawer-title { font-weight: 600; }
+.drawer-close {
+  background: #f3f4f6;
+  border: none;
+  border-radius: 6px;
+  width: 28px; height: 28px;
+  cursor: pointer;
+}
+.drawer-body {
+  padding: 12px;
+  overflow-y: auto;
+}
+
+/* Drawer animations */
+.drawer-fade-in { animation: drawerFadeIn 180ms ease-out; }
+.drawer-slide-in-right { animation: drawerSlideInRight 220ms ease-out; }
+.drawer-slide-in-left { animation: drawerSlideInLeft 220ms ease-out; }
+@keyframes drawerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawerSlideInRight { from { transform: translateX(8%); opacity: 0.6; } to { transform: translateX(0); opacity: 1; } }
+@keyframes drawerSlideInLeft { from { transform: translateX(-8%); opacity: 0.6; } to { transform: translateX(0); opacity: 1; } }
+
+/* Modal animations */
+.modal-fade-in { animation: modalFadeIn 200ms ease-out; }
+.modal-zoom-in { animation: modalZoomIn 220ms ease-out; transform-origin: center; }
+@keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalZoomIn { from { opacity: 0; transform: translateY(8px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }

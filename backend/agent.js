@@ -57,7 +57,7 @@ Keep the full Q&A history for context.
 
 Detail Handling
 
-If the user says “show details for item 2”, gives a SKU, or exact name → plan to call openProductDetail(SKU).
+If the user says “show details for item 2, show me that item again, what was the product name again?, or somenthing alike”, gives a SKU, or exact name → plan to call openProductDetail(SKU).
 
 When referencing manuals/safety sheets, use fileSearch(filename).
 

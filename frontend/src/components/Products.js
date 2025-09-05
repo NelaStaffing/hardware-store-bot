@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-export default function Products({ selectedProductSKU }) {
+export default function Products({ selectedProductSKU, isMobile = false, onClosePreview }) {
   const sku = selectedProductSKU || '';
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -42,20 +42,33 @@ export default function Products({ selectedProductSKU }) {
         </div>
       ) : (
         <div className="product-card" key={product.id}>
-          <img
-            src="https://kruyefkcggouvvgldipa.supabase.co/storage/v1/object/public/images-app//Blue-print-tools-icons_lg.png"
-            alt="Product"
-            style={{ width: 120, height: 120, objectFit: 'contain', display: 'block', margin: '0 auto 16px auto', background: '#f6f8fa', borderRadius: 12, borderWidth: 1, borderColor: '#dadee6' }}
-          />
+          {(() => {
+            const defaultImg = 'https://kruyefkcggouvvgldipa.supabase.co/storage/v1/object/public/images-app//Blue-print-tools-icons_lg.png';
+            const url = (product.thumbnail_url && /^https?:\/\//i.test(product.thumbnail_url)) ? product.thumbnail_url : defaultImg;
+            return (
+              <img
+                src={url}
+                alt="Product"
+                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = defaultImg; }}
+                style={{ width: 120, height: 120, objectFit: 'contain', display: 'block', margin: '0 auto 16px auto', background: '#f6f8fa', borderRadius: 12, border: '1px solid #dadee6' }}
+              />
+            );
+          })()}
           <div className="product-details">
             <div className="product-name">{product.name}</div>
             <div className="product-desc">{product.description}</div>
             <div className="product-price">${product.price}</div>
-            <div className="product-sku">SKU: {product.SKU}</div>
+            <div className="product-sku">SKU: {(product.sku || product.SKU || 'N/A')}</div>
             {product.aisle_store_location_lititz_pa && (
               <div className="product-aisle">Aisle: {product.aisle_store_location_lititz_pa}</div>
             )}
-            {product.URL && <a href={product.URL} target="_blank" rel="noopener noreferrer">Product Link</a>}
+            <div className="product-url">
+              URL: {(product.url || product.URL) ? (
+                <a href={(product.url || product.URL)} target="_blank" rel="noopener noreferrer" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{product.url || product.URL}</a>
+              ) : (
+                'N/A'
+              )}
+            </div>
           </div>
           <div className="product-actions" style={{ display: 'flex', gap: 16, marginTop: 16 }}>
             <button
@@ -63,9 +76,15 @@ export default function Products({ selectedProductSKU }) {
               style={{ background: '#f44336', border: 'none', borderRadius: '50%', width: 48, height: 48, color: '#fff', fontSize: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               title="Discard"
               onClick={() => {
-                // Remove from shopping list
+                // On mobile, use red X to close the preview modal
+                if (isMobile && onClosePreview) {
+                  onClosePreview();
+                  return;
+                }
+                // Otherwise: Remove from shopping list (desktop behavior)
                 let list = JSON.parse(localStorage.getItem('shoppingList') || '[]');
-                list = list.filter(item => item.SKU !== product.SKU);
+                const currentSku = (product.sku || product.SKU || '').toString();
+                list = list.filter(item => ((item.sku || item.SKU || '').toString()) !== currentSku);
                 localStorage.setItem('shoppingList', JSON.stringify(list));
                 alert('Product removed from shopping list');
               }}
@@ -79,8 +98,11 @@ export default function Products({ selectedProductSKU }) {
               onClick={() => {
                 // Add to shopping list
                 let list = JSON.parse(localStorage.getItem('shoppingList') || '[]');
-                if (!list.find(item => item.SKU === product.SKU)) {
-                  list.push(product);
+                const currentSku = (product.sku || product.SKU || '').toString();
+                if (!list.find(item => ((item.sku || item.SKU || '').toString()) === currentSku)) {
+                  // Normalize to ensure `SKU` exists
+                  const normalized = { ...product, SKU: currentSku };
+                  list.push(normalized);
                   localStorage.setItem('shoppingList', JSON.stringify(list));
                   window.dispatchEvent(new Event('shoppingListUpdated'));
 
