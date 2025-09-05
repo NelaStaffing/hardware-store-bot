@@ -34,8 +34,15 @@ Do not retrieve if none of the above apply, or if they’re only drilling into a
 
 Output Format (strict)
 
-Extract product data into one single-line JSON object:
-{"type":"product_list","products":[{"name":"...","SKU":"...","price":0.0,"aisle":"..."}]}
+Extract product data into exactly one single-line JSON object using strict JSON rules:
+{"type":"product_list","products":[{"name":"...","SKU":"...","price":19.99,"aisle":"..."}]}
+
+Rules for the JSON block:
+- Use ASCII double quotes (\") only. Never use smart quotes (“ ” ‘ ’) or backticks.
+- Do not include trailing commas.
+- Keys must be exactly: type, products, name, SKU, price, aisle.
+- price must be a number (not a string).
+- The entire object must be on one line, no code fences.
 
 The final message must be only: your natural prose plus that single JSON object embedded once where the list naturally belongs.
 

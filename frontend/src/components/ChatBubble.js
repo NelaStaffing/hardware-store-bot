@@ -25,32 +25,56 @@ export default function ChatBubble({ message, onProductClick }) {
   // Try to extract a JSON product_list block from the message
   let text = stripHtml(message.text || '');
   let productList = null, intro = '', outro = '';
-  if (isAgent && text.includes('"type":"product_list"')) {
-    try {
-      // Use regex to extract the JSON block for product_list
-      const match = text.match(/({[\s\S]*?"type"\s*:\s*"product_list"[\s\S]*})/m);
-      if (match) {
-        let jsonStr = match[1];
-        // Log the raw matched string before sanitization
-        console.log('Matched JSON string:', jsonStr);
-        // Attempt to repair common issues
-        jsonStr = jsonStr
-          .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
-          .replace(/'/g, '"') // Replace single with double quotes
-          .replace(/&quot;/g, '"'); // Replace HTML entity quotes
-        // Log for debugging
-        console.log('Sanitized JSON string:', jsonStr);
-        productList = JSON.parse(jsonStr);
-        intro = text.slice(0, match.index).trim();
-        outro = text.slice(match.index + match[1].length).trim();
-        console.log('REGEX Parsed productList:', productList);
-      } else {
-        productList = null;
-        console.error('No product_list JSON found.');
+
+  function extractProductJSON(s) {
+    if (!s) return null;
+    // Normalize quotes and entities
+    const normalized = s
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/&quot;/g, '"');
+    const typeToken = '"type":"product_list"';
+    const typeIdx = normalized.indexOf(typeToken);
+    if (typeIdx === -1) return null;
+    // Find the opening brace for the JSON object
+    let start = normalized.lastIndexOf('{', typeIdx);
+    if (start === -1) return null;
+    // Scan forward with brace balance while respecting strings
+    let depth = 0; let inStr = false; let esc = false; let end = -1;
+    for (let i = start; i < normalized.length; i++) {
+      const ch = normalized[i];
+      if (inStr) {
+        if (esc) { esc = false; }
+        else if (ch === '\\') { esc = true; }
+        else if (ch === '"') { inStr = false; }
+        continue;
       }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    if (end === -1) return null;
+    let jsonStr = normalized.slice(start, end);
+    // Repairs: remove trailing commas
+    jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+    try {
+      const obj = JSON.parse(jsonStr);
+      return { obj, start, end };
     } catch (e) {
-      productList = null;
-      console.error('REGEX JSON parse error:', e);
+      console.error('Balanced-parse JSON error:', e, jsonStr);
+      return null;
+    }
+  }
+
+  if (isAgent && text.includes('"type":"product_list"')) {
+    const found = extractProductJSON(text);
+    if (found && found.obj && Array.isArray(found.obj.products)) {
+      productList = found.obj;
+      intro = text.slice(0, found.start).trim();
+      outro = text.slice(found.end).trim();
     }
   }
 
