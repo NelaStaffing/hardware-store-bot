@@ -32,6 +32,10 @@ Call searchInventory only if the user (a) mentions a SKU, index, or exact name, 
 
 Do not retrieve if none of the above apply, or if they’re only drilling into an already-listed item.
 
+No-Hallucination Product Policy
+
+Never invent products, SKUs, prices, or aisles. You MUST call searchInventory and only output a product_list if the latest search returned one or more items. If searchInventory returns zero items, do NOT output a product_list. Instead, reply that no matching items were found and offer to search alternatives or clarify the request. If you already have a retrieved list in the current chat, you may reference it; otherwise do not fabricate.
+
 Output Format (strict)
 
 Extract product data into exactly one single-line JSON object using strict JSON rules:
@@ -100,6 +104,44 @@ export async function chatAgent(history = [], userMessage = '') {
 
   // Loop until there are no more tool calls (max 3 rounds to be safe)
   let assistantMsg = null;
+  let lastSearchProducts = null;
+  let lastSearchQuery = '';
+  let hadSearchThisTurn = false;
+
+  // Seed lastSearchProducts from any prior assistant product_list in history
+  function extractProductListFrom(text) {
+    if (!text || typeof text !== 'string') return null;
+    const normalized = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/&quot;/g, '"');
+    const token = '"type":"product_list"';
+    const idx = normalized.lastIndexOf(token);
+    if (idx === -1) return null;
+    let start = normalized.lastIndexOf('{', idx);
+    if (start === -1) return null;
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let i = start; i < normalized.length; i++) {
+      const ch = normalized[i];
+      if (inStr) {
+        if (esc) { esc = false; }
+        else if (ch === '\\') { esc = true; }
+        else if (ch === '"') { inStr = false; }
+        continue;
+      }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+    }
+    if (end === -1) return null;
+    let jsonStr = normalized.slice(start, end).replace(/,(\s*[}\]])/g, '$1');
+    try { return JSON.parse(jsonStr); } catch { return null; }
+  }
+
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h = history[i];
+    if (h && h.role === 'assistant' && typeof h.content === 'string' && h.content.includes('"type":"product_list"')) {
+      const pl = extractProductListFrom(h.content);
+      if (pl && Array.isArray(pl.products)) { lastSearchProducts = pl.products; break; }
+    }
+  }
   for (let round = 0; round < 3; round++) {
     const resp = await openai.chat.completions.create({
       model: MODEL,
@@ -123,6 +165,13 @@ export async function chatAgent(history = [], userMessage = '') {
       try { args = JSON.parse(call.function.arguments || '{}'); } catch {}
       const result = await tool.execute(args);
 
+      // Track latest searchInventory results for anti-hallucination guard
+      if (call.function.name === 'searchInventory') {
+        lastSearchProducts = (result && Array.isArray(result.products)) ? result.products : [];
+        lastSearchQuery = (args && typeof args.query === 'string') ? args.query : '';
+        hadSearchThisTurn = true;
+      }
+
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
@@ -130,6 +179,51 @@ export async function chatAgent(history = [], userMessage = '') {
       });
     }
     // Next loop iteration will ask the model to summarize with tool results included
+  }
+
+  // Guards against hallucinated product_list
+  if (assistantMsg && typeof assistantMsg.content === 'string') {
+    const hasProductJson = assistantMsg.content.includes('"type":"product_list"');
+    const emptyOrMissingSearch = !lastSearchProducts || lastSearchProducts.length === 0;
+    if (hasProductJson) {
+      const parsed = extractProductListFrom(assistantMsg.content);
+      const emittedSkus = parsed && Array.isArray(parsed.products)
+        ? parsed.products.map(p => String(p.SKU || p.sku || p.Sku || '')).filter(Boolean)
+        : [];
+      const retrievedSkus = (lastSearchProducts || []).map(p => String(p.SKU || p.sku || p.Sku || '')).filter(Boolean);
+      const hasRetrieved = retrievedSkus.length > 0;
+      const isSubset = emittedSkus.length > 0 && emittedSkus.every(s => retrievedSkus.includes(s));
+
+      if (hadSearchThisTurn) {
+        // Must reflect this turn's search outcome
+        if (emptyOrMissingSearch) {
+          const q = (userMessage || lastSearchQuery || '').trim();
+          const safeText = q
+            ? `I couldn't find any matching products for "${q}" in our inventory. We may not carry that item. Would you like me to look for a similar item or try a different term?`
+            : `I couldn't find any matching products in our inventory. Would you like me to look for a similar item or try a different term?`;
+          assistantMsg = { role: 'assistant', content: safeText };
+        } else if (!isSubset) {
+          // Correct the JSON to reflect actual retrieved results
+          const normalized = lastSearchProducts.slice(0, 6).map(p => ({
+            name: p.name || p.Name || '',
+            SKU: String(p.SKU || p.sku || p.Sku || ''),
+            price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
+            aisle: p.aisle || p.Aisle || p.location || ''
+          }));
+          const json = { type: 'product_list', products: normalized };
+          assistantMsg = { role: 'assistant', content: `Here are the items I found: ${JSON.stringify(json)}` };
+        }
+      } else {
+        // No search this turn. Allow only if it reuses previously retrieved items and is a strict subset.
+        if (!hasRetrieved || !isSubset) {
+          const q0 = (userMessage || lastSearchQuery || '').trim();
+          const notNowText = q0
+            ? `Let me check our inventory for "${q0}". Could you specify the type or brand so I can search properly?`
+            : `Let me check our inventory. Could you specify the product so I can search properly?`;
+          assistantMsg = { role: 'assistant', content: notNowText };
+        }
+      }
+    }
   }
 
   return assistantMsg || { role: 'assistant', content: 'Sorry, I could not generate a response.' };
