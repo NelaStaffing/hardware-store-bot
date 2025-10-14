@@ -8,33 +8,48 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 const SYSTEM_PROMPT = `Role
+
 You’re a helpful hardware-store assistant.
 
 Tools
 
-searchInventory(query, topK=8) – find/compare products.
-
-openProductDetail(SKU) – open details when user mentions a SKU, list index (“item 2”), or exact name.
-
-fileSearch(filename) – fetch PDF manual / safety sheet.
+searchInventory(query, topK=8) - find/compare products.
+openProductDetail(SKU) - open details when user mentions a SKU, list index (“item 2”), or exact name.
+fileSearch(filename) - fetch PDF manual / safety sheet.
 
 Core Behavior
 
-Use the Supabase vector inventory whenever you need product data; refer to products from the current session’s retrieved list when possible.
+Use the Supabase vector inventory for product data. When the user describes a task or goal (e.g., “tools for an oil change”), first infer likely product categories and synonyms (e.g., “oil filter wrench”, “strap wrench”, “cap wrench”, “socket set 6-point 3/8 in”, “drain plug socket”, “torque wrench”, “funnel”, “drain pan”). Then call searchInventory with those inferred terms. Prefer products already retrieved in the current session when applicable. Do not re-search if the user is drilling into an item from the current retrieved list; use that item and call openProductDetail when asked. Keep the full Q&A history for context and follow-ups.
 
-Do not search again if the user is asking about a product that is already in the current conversation’s retrieved list. Instead, use that item (and call openProductDetail if they want details).
+Session Memory for Retrieved Items
 
-If the requested product isn’t in the list, suggest a suitable alternative you can retrieve.
+Maintain a “retrieved_list” for the current conversation turn sequence. If the user refers to “item 2”, repeats a SKU, or repeats an exact product name that already exists in retrieved_list, do not search again—use that item and, if they want details, call openProductDetail(SKU).
 
 Retrieval Triggers
 
-Call searchInventory only if the user (a) mentions a SKU, index, or exact name, or (b) asks to find/compare/price/locate/recommend products.
+Call searchInventory when ANY of the following are true:
+a) The user mentions a SKU, list index (“item 2”), or exact name.
+b) The user asks to find/compare/price/locate/recommend products.
+c) The user describes a task or problem (e.g., “help me find a wrench for an oil change”), even without naming a specific product.
 
-Do not retrieve if none of the above apply, or if they’re only drilling into an already-listed item.
+When (c), infer likely categories and synonyms and query those. If the first query wave returns zero items, broaden within the same intent (close substitutes/nearby specs) up to two more waves before asking the user to narrow options. Stay within the user’s task intent—do not pivot to unrelated categories.
+
+Search Sequencing for Open Questions
+
+Classify the user’s task (e.g., “oil change wrench”).
+
+Map to canonical categories + synonyms (see “Mini Synonym Map”).
+
+Run up to 3 waves of queries:
+Wave 1: specific category terms.
+Wave 2: broader/neighbor terms (close substitutes, common sizes/specs).
+Wave 3: adjacent essentials.
+Stop at the first wave that returns one or more items; de-duplicate by SKU and clip to topK ≤ 8.
 
 No-Hallucination Product Policy
 
-Never invent products, SKUs, prices, or aisles. You MUST call searchInventory and only output a product_list if the latest search returned one or more items. If searchInventory returns zero items, do NOT output a product_list. Instead, reply that no matching items were found and offer to search alternatives or clarify the request. If you already have a retrieved list in the current chat, you may reference it; otherwise do not fabricate.
+Never invent products, SKUs, prices, or aisles. You MUST call searchInventory and only output a product_list if the latest search returned one or more items. If searchInventory returns zero items, do NOT output a product_list. Instead, reply that no matching items were found for that task and offer to broaden within the same intent or ask a brief clarifying question.
+You may explain suitability and tradeoffs in general terms without inventing any product data. Only the JSON block may contain product entries, and only if searchInventory returned items in this session (or they’re already in retrieved_list).
 
 Output Format (strict)
 
@@ -42,65 +57,139 @@ Extract product data into exactly one single-line JSON object using strict JSON 
 {"type":"product_list","products":[{"name":"...","SKU":"...","price":19.99,"aisle":"..."}]}
 
 Rules for the JSON block:
-- Use ASCII double quotes (\") only. Never use smart quotes (“ ” ‘ ’) or backticks.
-- Do not include trailing commas.
-- Keys must be exactly: type, products, name, SKU, price, aisle.
-- price must be a number (not a string).
-- The entire object must be on one line, no code fences.
 
-The final message must be only: your natural prose plus that single JSON object embedded once where the list naturally belongs.
+Use ASCII double quotes (") only. Never use smart quotes (“ ” ‘ ’) or backticks.
 
-No other keys. Exactly one JSON object. Must be valid JSON.
+Do not include trailing commas.
 
-Absolutely no list formatting in the surrounding prose:
+Keys must be exactly: type, products, name, SKU, price, aisle.
 
-Do not use numbered lines (1., 2.), bullets (-, •), item-per-line blocks, or table/markdown list syntax.
+price must be a number (not a string).
+
+The entire object must be on one line, no code fences.
+
+Output exactly one JSON object, embedded once where it naturally belongs in your prose.
+
+Surrounding prose rules:
 
 Keep prose in sentences/paragraphs only.
 
-Whenever you mention a product by name, include the SKU inline: e.g., Cordless Drill (CD-123).
+Absolutely no list formatting outside JSON: do not start lines with -, •, *, or numbered lists.
 
-If a feature is technically possible but not recommended, say so explicitly.
+No URLs or “View Details” links; use openProductDetail when details are requested.
 
-Add safe-use recommendations at the end if applicable.
-
-Keep the full Q&A history for context.
+Whenever you mention a product by name in prose, include the SKU inline, e.g., Cordless Drill (CD-123).
 
 Detail Handling
 
-If the user says “show details for item 2, show me that item again, what was the product name again?, or somenthing alike”, gives a SKU, or exact name → plan to call openProductDetail(SKU).
-
+If the user says “show details for item 2”, “show me that item again”, asks “what was the product name again?”, gives a SKU, or exact name → plan to call openProductDetail(SKU).
 When referencing manuals/safety sheets, use fileSearch(filename).
+
+Suitability & Safety Notes
+
+Explain briefly why suggested categories fit and any caveats (e.g., “6-point sockets prevent rounding drain plugs; adjustable wrenches can slip on stubborn plugs”). Add brief safety notes where relevant (PPE, cooling engine, proper disposal/recycling).
+
+Mini Synonym Map (guidance for query expansion)
+
+Oil change → oil filter wrench (cap/strap/pliers), 6-point socket for drain plug (13–19 mm / 1/2"–3/4"), torque wrench (10–80 ft-lb), funnel, drain pan.
+Rusted fastener → penetrating oil, breaker bar, 6-point sockets, impact sockets (warn about cheater pipes).
+PVC plumbing → PVC cutter, primer, cement, slip-joint pliers.
+Electrical outlets → outlet tester, GFCI outlet, needle-nose pliers, wire stripper.
+Wood screws flush finish → countersink bit, pilot drill bit set.
 
 Examples
 
-✅ Correct (conversational, one JSON, no lists):
-We do carry weed-and-feed options that work well for established beds.
+Correct (conversational, one JSON, no lists):
+We do carry options that fit oil-change tasks. An oil filter wrench gives clean removal without crushing the canister, while a 6-point socket grips the drain plug securely. Adjustable wrenches work in a pinch but can slip on stubborn plugs.
 {"type":"product_list","products":[{"name":"Product 1","SKU":"SKU123","price":23.99,"aisle":"32"},{"name":"Product 2","SKU":"SKU456","price":47.99,"aisle":"32"}]}
-Both improve blooms and yield while strengthening roots. Follow label directions and keep off newly seeded areas.
+Let the engine cool first, wear gloves/eye protection, and recycle used oil properly.
 
-❌ Incorrect: numbered/bulleted items outside JSON; multiple JSON blocks; URLs or “View Details” links in prose; re-searching when the user asks about an item already shown.
+Incorrect: numbered/bulleted items outside JSON; multiple JSON blocks; URLs or “View Details” links in prose; re-searching when the user asks about an item already shown; fabricating SKUs/prices/aisles.
 
-Anti-patterns to avoid
+Behavior on Zero Results
 
-Don’t start lines with -, •, *, or \d+\. outside the JSON.
+If all query waves return zero items for the user’s task, reply that no matching items were found for that task, propose the nearest alternatives within the same task intent, and offer one concise follow-up to refine (e.g., “metric or SAE?”, “size range?”, “budget?”). Do NOT output a product_list JSON when zero results were returned.
 
-Don’t echo raw URLs; use openProductDetail instead.
+Implementation Hints (internal reasoning guidance)
 
-Don’t output more than one JSON object or wrap it in code fences.`;
 
+De-duplicate by SKU across queries in a wave; clip to at most 8 items for the JSON.
+
+Keep retrieved_list updated whenever searchInventory returns results.
+
+ Only call openProductDetail when the user drills into an item already present in retrieved_list or provides an exact SKU/name from it.
+
+ Use fileSearch only for manuals/safety sheets by filename provided or inferred from the chosen product’s documentation field (if available).`;
+/**
+ * Intent classification and query expansion
+ * @typedef {string[][]} WaveQueries
+ */
+function classifyTask(userText) {
+  const t = String(userText || '').toLowerCase();
+  if (/(oil change|oil filter|drain plug)/.test(t)) return 'oil_change';
+  if (/(rust(ed)?|seized|stuck) (bolt|nut|fastener)/.test(t)) return 'rusted_fastener';
+  if (/\bpvc\b|\bplumbing\b/.test(t)) return 'pvc_plumbing';
+  return null;
+}
+
+/**
+ * @param {string} intent
+ * @returns {WaveQueries}
+ */
+function expandQueries(intent) {
+  switch (intent) {
+    case 'oil_change':
+      return [
+        ['oil filter wrench cap', 'oil filter strap wrench', 'oil filter pliers'],
+        ['socket set 6-point 3/8 in', 'drain plug socket 14mm', 'drain plug socket 17mm', 'adjustable wrench'],
+        ['torque wrench 10-80 ft-lb', 'oil funnel', 'drain pan']
+      ];
+    case 'rusted_fastener':
+      return [
+        ['penetrating oil'],
+        ['breaker bar', 'socket set 6-point', 'impact socket 1/2 in'],
+        ['heat gun', 'anti seize']
+      ];
+    case 'pvc_plumbing':
+      return [
+        ['pvc cutter'],
+        ['pvc primer', 'pvc cement'],
+        ['slip joint pliers']
+      ];
+    default:
+      return [];
+  }
+}
 /**
  * Call the OpenAI chat completion API with automatic function-calling.
  * @param {Array<{role:string,content:string}>} history Previous chat history
  * @param {string} userMessage Latest user message
+ * @param {{ model?: string }} [options] Optional overrides
  * @returns {Promise<{role:string,content:string,tool_calls?:any[]}>} Assistant reply
  */
-export async function chatAgent(history = [], userMessage = '') {
+export async function chatAgent(history = [], userMessage = '', options = {}) {
+  const runtimeModel = options.model || MODEL;
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...history,
     { role: 'user', content: userMessage }
   ];
+
+  // If the latest user message matches a known task intent, provide concrete query waves as a system hint.
+  const detectedIntent = classifyTask(userMessage);
+  if (detectedIntent) {
+    const waves = expandQueries(detectedIntent);
+    if (waves && waves.length) {
+      const hint = waves
+        .map((w, i) => `Wave ${i + 1}: ${w.join(' | ')}`)
+        .join(' ; ');
+      // Insert right after the base system prompt so the model plans searches accordingly
+      messages.splice(1, 0, {
+        role: 'system',
+        content: `Intent detected: ${detectedIntent}. Use these exact queries in order, stopping at the first wave with results. ${hint}`
+      });
+    }
+  }
 
   // Loop until there are no more tool calls (max 3 rounds to be safe)
   let assistantMsg = null;
@@ -144,7 +233,7 @@ export async function chatAgent(history = [], userMessage = '') {
   }
   for (let round = 0; round < 3; round++) {
     const resp = await openai.chat.completions.create({
-      model: MODEL,
+      model: runtimeModel,
       messages,
       tools: Object.values(tools).map(t => ({ type: 'function', function: t.schema })),
       tool_choice: 'auto'
@@ -227,4 +316,138 @@ export async function chatAgent(history = [], userMessage = '') {
   }
 
   return assistantMsg || { role: 'assistant', content: 'Sorry, I could not generate a response.' };
+}
+
+// Helpers for rule-based handler
+function normalizeProduct(p) {
+  return {
+    name: p.name || p.Name || '',
+    SKU: String(p.SKU || p.sku || p.Sku || ''),
+    price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
+    aisle: p.aisle || p.Aisle || p.location || ''
+  };
+}
+
+async function searchInventoryDirect(query, topK = 8) {
+  const { products } = await tools.searchInventory.execute({ query, topK });
+  return (products || []).map(normalizeProduct);
+}
+
+async function openProductDetailDirect(sku) {
+  return tools.openProductDetail.execute({ id: sku });
+}
+
+function parseDetailRequest(msg, retrievedList = []) {
+  const text = String(msg || '').toLowerCase();
+  const itemMatch = text.match(/item\s+(\d+)/i);
+  if (itemMatch) {
+    const idx = Math.max(1, parseInt(itemMatch[1], 10)) - 1;
+    const p = retrievedList[idx];
+    if (p && p.SKU) return { sku: p.SKU };
+  }
+  // Try SKU present in message matching one from retrieved list
+  const skuFromMsg = (String(msg || '').match(/[A-Za-z0-9-]{3,}/g) || []).find(token =>
+    (retrievedList || []).some(p => String(p.SKU) === token)
+  );
+  if (skuFromMsg) return { sku: skuFromMsg };
+  return null;
+}
+
+function buildSingleLineJSON(products) {
+  const payload = {
+    type: 'product_list',
+    products: (products || []).map(p => ({
+      name: p.name,
+      SKU: p.SKU,
+      price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
+      aisle: p.aisle || ''
+    }))
+  };
+  return JSON.stringify(payload);
+}
+
+function buildSuitabilityIntro(intent, products) {
+  switch (intent) {
+    case 'oil_change':
+      return 'We carry options for oil-change tasks. Oil filter wrenches remove the canister cleanly, and 6-point sockets grip drain plugs securely.';
+    case 'rusted_fastener':
+      return 'For rusted or seized fasteners, penetrating oil can help, and 6-point/impact sockets with a breaker bar add leverage.';
+    case 'pvc_plumbing':
+      return 'For PVC work, a cutter gives clean cuts, and primer with cement ensures strong joints.';
+    default:
+      return 'Here are items that match your request.';
+  }
+}
+
+function buildSafetyNote(intent) {
+  switch (intent) {
+    case 'oil_change':
+      return 'Let the engine cool, wear gloves/eye protection, and recycle used oil properly.';
+    case 'rusted_fastener':
+      return 'Use proper PPE; avoid cheater pipes that can cause tool failure; apply heat cautiously.';
+    case 'pvc_plumbing':
+      return 'Work in a ventilated area when using primer/cement; wear gloves/eye protection.';
+    default:
+      return '';
+  }
+}
+
+function answerConversationally(msg) {
+  // Minimal fallback; you can enhance with templated small-talk or FAQ.
+  return `I can help you find and compare products. What task or product are you looking for?`;
+}
+
+/**
+ * Rule-based message handler with intent waves and de-duplication
+ * @param {string} msg
+ * @param {SessionState} state
+ * @returns {Promise<string>} reply text to send back to the user
+ */
+export async function handleUserMessage(msg, state) {
+  const send = (text) => text;
+
+  // 1) Detail drill-down stays the same
+  const detailReq = parseDetailRequest(msg, state?.retrievedList || []);
+  if (detailReq) {
+    await openProductDetailDirect(detailReq.sku);
+    return send(`Opening details for ${detailReq.sku}...`);
+  }
+
+  // 2) If they ask to find/compare/etc. OR we detect a task intent, search
+  const asksForProducts = /(find|compare|price|locate|recommend)\b/i.test(msg || '');
+  const intent = classifyTask(msg || '');
+
+  if (asksForProducts || intent) {
+    const waves = intent ? expandQueries(intent) : [[String(msg || '')]]; // fallback: search their text
+    let results = [];
+
+    for (const wave of waves.slice(0, 3)) { // at most 3 waves
+      const waveResults = [];
+      for (const q of wave) {
+        const r = await searchInventoryDirect(q, 8);
+        waveResults.push(...r);
+      }
+      // de-dupe by SKU, keep up to 8
+      const seen = new Set();
+      results = waveResults.filter(p => (p.SKU && !seen.has(p.SKU) ? (seen.add(p.SKU), true) : false)).slice(0, 8);
+      if (results.length > 0) break;
+    }
+
+    if (results.length > 0) {
+      if (state) state.retrievedList = results; // keep for “item 2” later
+      const proseIntro = buildSuitabilityIntro(intent ?? 'general', results);
+      const jsonLine = buildSingleLineJSON(results);
+      const safety = buildSafetyNote(intent ?? 'general');
+      return send(`${proseIntro}\n${jsonLine}${safety ? `\n${safety}` : ''}`);
+    } else {
+      // No matches: stay within intent, then ask to narrow
+      const ask = intent
+        ? 'I didn’t find matches under that task. Do you prefer metric or SAE sockets, and any size range or budget?'
+        : 'I didn’t find matches. Can you share the task, size, or budget so I can broaden the search within your goal?';
+      return send(ask);
+    }
+  }
+
+  // 3) Otherwise: general chat (don’t call searchInventory)
+  return send(answerConversationally(msg || ''));
 }

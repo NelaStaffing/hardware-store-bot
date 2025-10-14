@@ -3,13 +3,16 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import { supabase } from './supabaseClient.js';
-import { chatAgent } from './agent.js';
+import { chatAgent, handleUserMessage } from './agent.js';
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// In-memory rule-based session state keyed by sessionId
+const sessionState = new Map();
 
 // Helper: find product by SKU across possible column casings
 async function findProductBySku(rawSku) {
@@ -61,7 +64,7 @@ async function findProductBySku(rawSku) {
 
 app.post('/api/chat', async (req, res) => {
   console.log('Received /api/chat request');
-  const { message, history = [], sessionId } = req.body || {};
+  const { message, history = [], sessionId, mode, model } = req.body || {};
   try {
     // Upsert session and store user message
     if (sessionId) await supabase.from('chat_sessions').upsert({ session_id: sessionId });
@@ -74,13 +77,28 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    // Map history to OpenAI roles
+    // Rule-based mode: bypass LLM agent
+    if ((mode || '').toLowerCase() === 'rule') {
+      const state = sessionId ? (sessionState.get(sessionId) || { retrievedList: [] }) : { retrievedList: [] };
+      const reply = await handleUserMessage(message || '', state);
+      if (sessionId) sessionState.set(sessionId, state);
+
+      await supabase.from('chat_messages').insert({
+        session_id: sessionId || 'local',
+        sender: 'agent',
+        text: reply,
+        timestamp: new Date().toISOString()
+      });
+      return res.json({ reply });
+    }
+
+    // LLM-driven default mode
     const mappedHistory = (history || []).map(m => ({
       role: m.sender === 'agent' ? 'assistant' : 'user',
       content: m.text || ''
     }));
 
-    const assistantMsg = await chatAgent(mappedHistory, message || '');
+    const assistantMsg = await chatAgent(mappedHistory, message || '', { model });
 
     // Always return the assistant's final natural-language content.
     // The agent internally loops tools until a final message, so we should not leak tool_calls here.
