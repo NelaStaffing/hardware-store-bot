@@ -79,6 +79,7 @@ app.post('/api/chat', async (req, res) => {
 
     // Rule-based mode: bypass LLM agent
     if ((mode || '').toLowerCase() === 'rule') {
+      console.log(`[chat] Rule mode active: sessionId=${sessionId || 'local'} message="${(message || '').slice(0, 120)}"`);
       const state = sessionId ? (sessionState.get(sessionId) || { retrievedList: [] }) : { retrievedList: [] };
       const reply = await handleUserMessage(message || '', state);
       if (sessionId) sessionState.set(sessionId, state);
@@ -158,6 +159,45 @@ app.post('/api/openProductDetail', async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
     res.json({ product: data });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/sessions', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('session_id,sender,text,timestamp')
+      .order('timestamp', { ascending: false })
+      .limit(2000);
+    if (error) return res.status(500).json({ error: 'DB error' });
+    const seen = new Set();
+    const sessions = [];
+    for (const m of data || []) {
+      const sid = m.session_id || 'local';
+      if (!seen.has(sid)) {
+        seen.add(sid);
+        sessions.push({ session_id: sid, last_timestamp: m.timestamp, last_text: m.text || '' });
+      }
+    }
+    res.json({ sessions });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/sessions/:sessionId/messages', async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+  try {
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('timestamp', { ascending: true });
+    if (error) return res.status(500).json({ error: 'DB error' });
+    res.json({ messages: data || [] });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

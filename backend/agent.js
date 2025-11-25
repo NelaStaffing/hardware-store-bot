@@ -17,9 +17,19 @@ searchInventory(query, topK=8) - find/compare products.
 openProductDetail(SKU) - open details when user mentions a SKU, list index (“item 2”), or exact name.
 fileSearch(filename) - fetch PDF manual / safety sheet.
 
+Scope and Refusal Policy
+
+Only assist with hardware-store topics: tools, building materials, fasteners, paint, electrical, plumbing, lawn/garden, safety gear, store information (availability, prices, aisles), and DIY tasks that use these products.
+
+If a request is outside this scope (e.g., poetry/creative writing, general programming unrelated to tools, entertainment, news, politics, finance, medical or legal advice), politely refuse and steer back: "I'm focused on hardware-store assistance. I can help you choose tools, find products, or plan a DIY task—what project are you working on?"
+
+Do not produce the out-of-scope content in your refusal.
+
 Core Behavior
 
 Use the Supabase vector inventory for product data. When the user describes a task or goal (e.g., “tools for an oil change”), first infer likely product categories and synonyms (e.g., “oil filter wrench”, “strap wrench”, “cap wrench”, “socket set 6-point 3/8 in”, “drain plug socket”, “torque wrench”, “funnel”, “drain pan”). Then call searchInventory with those inferred terms. Prefer products already retrieved in the current session when applicable. Do not re-search if the user is drilling into an item from the current retrieved list; use that item and call openProductDetail when asked. Keep the full Q&A history for context and follow-ups.
+
+When you present results, first state a concise Top pick and, if applicable, a Value pick, each in one sentence based on task suitability and price/quality. Format the labels in bold using Markdown ("**Top pick:**" and "**Value pick:**"), and separate these lines with newlines. Then include exactly one single-line product_list JSON. Keep prose as sentences only (no lists), and follow the Output Format rules.
 
 Session Memory for Retrieved Items
 
@@ -44,7 +54,7 @@ Run up to 3 waves of queries:
 Wave 1: specific category terms.
 Wave 2: broader/neighbor terms (close substitutes, common sizes/specs).
 Wave 3: adjacent essentials.
-Stop at the first wave that returns one or more items; de-duplicate by SKU and clip to topK ≤ 8.
+Stop at the first wave that returns one or more items; de-duplicate by SKU and clip to topK ≤ 4.
 
 No-Hallucination Product Policy
 
@@ -113,7 +123,7 @@ If all query waves return zero items for the user’s task, reply that no matchi
 Implementation Hints (internal reasoning guidance)
 
 
-De-duplicate by SKU across queries in a wave; clip to at most 8 items for the JSON.
+De-duplicate by SKU across queries in a wave; clip to at most 4 items for the JSON.
 
 Keep retrieved_list updated whenever searchInventory returns results.
 
@@ -169,6 +179,13 @@ function expandQueries(intent) {
  */
 export async function chatAgent(history = [], userMessage = '', options = {}) {
   const runtimeModel = options.model || MODEL;
+  const tGuard = String(userMessage || '').toLowerCase();
+  const ooScope = /(haiku|poem|poetry|story|song|lyrics|joke|riddle|limerick|sonnet|acrostic|essay|novel)\b/.test(tGuard)
+    || /(write|generate|compose)\s+(code|program|script|algorithm)\b/.test(tGuard)
+    || /(homework|leetcode|movie|celebrity|politics|finance|medical|legal)\b/.test(tGuard);
+  if (ooScope) {
+    return { role: 'assistant', content: "I'm focused on hardware-store assistance. I can help you choose tools, find products, or plan a DIY task—what project are you working on?" };
+  }
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...history,
@@ -293,7 +310,7 @@ export async function chatAgent(history = [], userMessage = '', options = {}) {
           assistantMsg = { role: 'assistant', content: safeText };
         } else if (!isSubset) {
           // Correct the JSON to reflect actual retrieved results
-          const normalized = lastSearchProducts.slice(0, 6).map(p => ({
+          const normalized = lastSearchProducts.slice(0, 4).map(p => ({
             name: p.name || p.Name || '',
             SKU: String(p.SKU || p.sku || p.Sku || ''),
             price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
@@ -301,6 +318,18 @@ export async function chatAgent(history = [], userMessage = '', options = {}) {
           }));
           const json = { type: 'product_list', products: normalized };
           assistantMsg = { role: 'assistant', content: `Here are the items I found: ${JSON.stringify(json)}` };
+        } else {
+          const parsedCount = parsed && Array.isArray(parsed.products) ? parsed.products.length : 0;
+          if (parsedCount > 4) {
+            const normalized = lastSearchProducts.slice(0, 4).map(p => ({
+              name: p.name || p.Name || '',
+              SKU: String(p.SKU || p.sku || p.Sku || ''),
+              price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
+              aisle: p.aisle || p.Aisle || p.location || ''
+            }));
+            const json = { type: 'product_list', products: normalized };
+            assistantMsg = { role: 'assistant', content: `Here are the items I found: ${JSON.stringify(json)}` };
+          }
         }
       } else {
         // No search this turn. Allow only if it reuses previously retrieved items and is a strict subset.
@@ -324,7 +353,9 @@ function normalizeProduct(p) {
     name: p.name || p.Name || '',
     SKU: String(p.SKU || p.sku || p.Sku || ''),
     price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
-    aisle: p.aisle || p.Aisle || p.location || ''
+    aisle: p.aisle || p.Aisle || p.location || '',
+    description: p.description || p.Description || '',
+    uses_cases: p.uses_cases || null
   };
 }
 
@@ -356,7 +387,7 @@ function parseDetailRequest(msg, retrievedList = []) {
 function buildSingleLineJSON(products) {
   const payload = {
     type: 'product_list',
-    products: (products || []).map(p => ({
+    products: (products || []).slice(0, 4).map(p => ({
       name: p.name,
       SKU: p.SKU,
       price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
@@ -406,6 +437,14 @@ function answerConversationally(msg) {
 export async function handleUserMessage(msg, state) {
   const send = (text) => text;
 
+  const t0 = String(msg || '').toLowerCase();
+  const outOfScope = /(haiku|poem|poetry|story|song|lyrics|joke|riddle|limerick|sonnet|acrostic|essay|novel)\b/.test(t0)
+    || /(write|generate|compose)\s+(code|program|script|algorithm)\b/.test(t0)
+    || /(homework|leetcode|movie|celebrity|politics|finance|medical|legal)\b/.test(t0);
+  if (outOfScope) {
+    return send("I'm focused on hardware-store assistance. I can help you choose tools, find products, or plan a DIY task—what project are you working on?");
+  }
+
   // 1) Detail drill-down stays the same
   const detailReq = parseDetailRequest(msg, state?.retrievedList || []);
   if (detailReq) {
@@ -427,18 +466,50 @@ export async function handleUserMessage(msg, state) {
         const r = await searchInventoryDirect(q, 8);
         waveResults.push(...r);
       }
-      // de-dupe by SKU, keep up to 8
+      // de-dupe by SKU, keep up to 4
       const seen = new Set();
-      results = waveResults.filter(p => (p.SKU && !seen.has(p.SKU) ? (seen.add(p.SKU), true) : false)).slice(0, 8);
+      results = waveResults.filter(p => (p.SKU && !seen.has(p.SKU) ? (seen.add(p.SKU), true) : false)).slice(0, 4);
       if (results.length > 0) break;
     }
 
     if (results.length > 0) {
-      if (state) state.retrievedList = results; // keep for “item 2” later
+      if (state) state.retrievedList = results;
+      const tokens = String(msg || '').toLowerCase().split(/\s+/).map(t => t.replace(/[^a-z0-9]/g, '')).filter(t => t.length > 2);
+      const scored = results.map(p => {
+        const nameText = String(p.name || '').toLowerCase();
+        const descText = String(p.description || '').toLowerCase();
+        let usesText = '';
+        if (Array.isArray(p.uses_cases)) usesText = p.uses_cases.join(' ').toLowerCase();
+        else if (p.uses_cases) usesText = String(p.uses_cases).toLowerCase();
+        const hay = `${nameText} ${descText} ${usesText}`;
+        let s = 0; for (const tok of tokens) if (hay.includes(tok)) s++;
+        return { p, s };
+      });
+      let top = scored[0];
+      for (const x of scored) if (x.s > (top?.s ?? -1)) top = x;
+      const prices = results.map(r => (typeof r.price === 'number' ? r.price : Number(r.price) || 0)).filter(n => n > 0).sort((a,b)=>a-b);
+      function qv(a){ if(!prices.length) return {lo:0,hi:0,md:0}; const n=prices.length; const i1=Math.floor((n-1)*0.33); const i2=Math.floor((n-1)*0.66); return {lo:prices[i1],hi:prices[i2],md:prices[Math.floor((n-1)*0.5)]}; }
+      const qs = qv();
+      function band(v){ if(!prices.length||!v) return 'mid-range'; if(v<=qs.lo) return 'budget'; if(v>=qs.hi) return 'premium'; return 'mid-range'; }
+      let value = null;
+      if (top) {
+        const threshold = Math.max(1, Math.floor(top.s * 0.8));
+        const cand = scored.filter(x => x !== top && x.s >= threshold);
+        if (cand.length) {
+          value = cand.reduce((best, x) => {
+            const px = typeof x.p.price === 'number' ? x.p.price : Number(x.p.price) || 0;
+            const pb = best ? (typeof best.p.price === 'number' ? best.p.price : Number(best.p.price) || 0) : Infinity;
+            return px < pb ? x : best;
+          }, null);
+        }
+      }
       const proseIntro = buildSuitabilityIntro(intent ?? 'general', results);
+      const topLine = top && top.p ? `**Top pick:** **${top.p.name || ''}** (${String(top.p.SKU || '')}) — ${band(typeof top.p.price === 'number' ? top.p.price : Number(top.p.price) || 0)}, best fit for your task.` : '';
+      const valueLine = value && value.p ? `**Value pick:** **${value.p.name || ''}** (${String(value.p.SKU || '')}) — ${band(typeof value.p.price === 'number' ? value.p.price : Number(value.p.price) || 0)}, solid performance for the price.` : '';
       const jsonLine = buildSingleLineJSON(results);
       const safety = buildSafetyNote(intent ?? 'general');
-      return send(`${proseIntro}\n${jsonLine}${safety ? `\n${safety}` : ''}`);
+      const lines = [proseIntro, topLine, valueLine].filter(Boolean).join('\n');
+      return send(`${lines}\n${jsonLine}${safety ? `\n${safety}` : ''}`);
     } else {
       // No matches: stay within intent, then ask to narrow
       const ask = intent

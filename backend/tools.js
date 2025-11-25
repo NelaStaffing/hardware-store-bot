@@ -45,11 +45,11 @@ export const tools = {
   searchInventory: {
     schema: {
       name: 'searchInventory',
-      description: 'Search inventory by free-text query (name or SKU). Returns up to topK products.',
+      description: 'Search inventory by free-text query (SKU, name, description, or common use-cases/tasks). Returns up to topK products.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Search query text' },
+          query: { type: 'string', description: 'Search query text (can be a SKU, product name, or a natural-language description of the task/use-case)' },
           topK: { type: 'integer', description: 'Max number of items to return', default: 8 }
         },
         required: ['query']
@@ -58,6 +58,7 @@ export const tools = {
     execute: async ({ query, topK = 8 }) => {
       const q = String(query || '').trim();
       if (!q) return { products: [] };
+
       // Try SKU-like columns first
       const skuCols = ['sku', 'SKU', 'Sku'];
       for (const col of skuCols) {
@@ -66,15 +67,105 @@ export const tools = {
           .select('*')
           .ilike(col, `%${q}%`)
           .limit(topK);
-        if (!error && data && data.length) return { products: data };
+        if (!error && data && data.length) {
+          console.log(`[searchInventory] SKU match on ${col} query="${q}" count=${data.length}`);
+          return { products: data };
+        }
       }
-      // Fallback: name match
-      const { data } = await supabase
+
+      // Next, try name match directly, but re-rank by task tokens so only suitable items float to the top
+      const { data: nameData, error: nameError } = await supabase
         .from('products')
         .select('*')
         .ilike('name', `%${q}%`)
-        .limit(topK);
-      return { products: data || [] };
+        .limit(200);
+      const queryTokens_name = q
+        .toLowerCase()
+        .split(/\s+/)
+        .map(t => t.replace(/[^a-z0-9]/g, ''))
+        .filter(t => t.length > 2);
+      if (!nameError && nameData && nameData.length && queryTokens_name.length) {
+        const rescored = nameData
+          .map(p => {
+            const nameText = String(p.name || '').toLowerCase();
+            const descText = String(p.description || '').toLowerCase();
+            let usesText = '';
+            if (Array.isArray(p.uses_cases)) usesText = p.uses_cases.join(' ').toLowerCase();
+            else if (p.uses_cases) usesText = String(p.uses_cases).toLowerCase();
+            const haystack = `${nameText} ${descText} ${usesText}`;
+            let score = 0;
+            for (const tok of queryTokens_name) if (haystack.includes(tok)) score++;
+            return { product: p, score };
+          })
+          .filter(x => x.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, topK)
+          .map(x => x.product);
+        if (rescored.length) {
+          console.log(`[searchInventory] name ilike match (rescored) query="${q}" count=${rescored.length}`);
+          return { products: rescored };
+        }
+      }
+
+      // Fallback: use-case–aware scoring across a broader slice of products.
+      // This lets natural-language task descriptions ("splitting large logs for firewood")
+      // match against description and the JSONB uses_cases field.
+      console.log(`[searchInventory] entering uses-cases fallback query="${q}"`);
+      const pageSize = 1000;
+      const maxScan = 3000;
+      let allData = [];
+      for (let start = 0; start < maxScan; start += pageSize) {
+        const end = start + pageSize - 1;
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .range(start, end);
+        if (error) break;
+        if (data && data.length) allData.push(...data);
+        if (!data || data.length < pageSize) break;
+      }
+
+      if (!allData || !allData.length) {
+        return { products: [] };
+      }
+
+      const queryTokens = q
+        .toLowerCase()
+        .split(/\s+/)
+        .map(t => t.replace(/[^a-z0-9]/g, ''))
+        .filter(t => t.length > 2);
+
+      if (!queryTokens.length) {
+        return { products: [] };
+      }
+
+      const scored = allData
+        .map(p => {
+          const nameText = String(p.name || '').toLowerCase();
+          const descText = String(p.description || '').toLowerCase();
+          let usesText = '';
+          if (Array.isArray(p.uses_cases)) {
+            usesText = p.uses_cases.join(' ').toLowerCase();
+          } else if (p.uses_cases) {
+            usesText = String(p.uses_cases).toLowerCase();
+          }
+
+          const haystack = `${nameText} ${descText} ${usesText}`;
+
+          let score = 0;
+          for (const tok of queryTokens) {
+            if (haystack.includes(tok)) score++;
+          }
+
+          return { product: p, score };
+        })
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK)
+        .map(item => item.product);
+
+      console.log(`[searchInventory] uses-cases fallback scanned=${allData.length} matched=${scored.length} query="${q}"`);
+      return { products: scored };
     }
   },
   openProductDetail: {

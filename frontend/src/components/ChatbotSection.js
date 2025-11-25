@@ -4,6 +4,7 @@ import axios from 'axios';
 import LoadingSpinner from './LoadingSpinner';
 import VoiceButton from './VoiceButton';
 import ChatBubble from './ChatBubble';
+import Drawer from './Drawer';
 
 export default function ChatbotSection({ selectedProductSKU, setSelectedProductSKU }) {
   const handleProductClick = sku => setSelectedProductSKU(sku);
@@ -21,10 +22,51 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
   const [model, setModel] = useState(() => localStorage.getItem('chat_model') || 'gpt-4o-mini');
   const chatEndRef = useRef(null);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState(() => localStorage.getItem('sessionId') || '');
+  const [openSessions, setOpenSessions] = useState(false);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setSessionsLoading(true);
+        const res = await axios.get(`${API_BASE}/api/sessions`);
+        setSessions(res.data?.sessions || []);
+      } catch {
+        setSessions([]);
+      } finally {
+        setSessionsLoading(false);
+      }
+    };
+    load();
+  }, [API_BASE]);
+
+  const openSession = async (sid) => {
+    try {
+      setSelectedSessionId(sid);
+      localStorage.setItem('sessionId', sid);
+      const res = await axios.get(`${API_BASE}/api/sessions/${sid}/messages`);
+      const rows = res.data?.messages || [];
+      const mapped = rows.map(r => ({ sender: r.sender, text: r.text, timestamp: r.timestamp }));
+      setMessages(mapped.length ? mapped : [{ sender: 'agent', text: 'Hi! What can I help you with?' }]);
+      setOpenSessions(false);
+    } catch {
+      setMessages([{ sender: 'agent', text: 'Hi! What can I help you with?' }]);
+    }
+  };
+
+  const newSession = () => {
+    const sid = (window.crypto?.randomUUID?.() || Date.now().toString());
+    localStorage.setItem('sessionId', sid);
+    setSelectedSessionId(sid);
+    setMessages([{ sender: 'agent', text: 'Hi! What can I help you with?' }]);
+    setInput('');
+  };
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -122,9 +164,11 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
                 <option value="gpt-4.1-mini">gpt-4.1-mini</option>
                 <option value="gpt-4.1">gpt-4.1</option>
                 <option value="gpt-5">gpt-5</option>
+                <option value="gpt-5.1">gpt-5.1</option>
               </select>
             </>
           )}
+          <button onClick={() => setOpenSessions(true)} style={{ fontSize: 12 }}>Sessions</button>
           <button className="btn-clear" onClick={handleClear}>Clear Chat</button>
         </div>
       </div>
@@ -149,6 +193,30 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
         <button type="submit" style={{ minWidth: 60 }}>Send</button>
         <VoiceButton disabled={loading} onResult={t => setInput(t)} />
       </form>
+      <Drawer open={openSessions} onClose={() => setOpenSessions(false)} title="Sessions" side="right">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontWeight: 600 }}>Sessions</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={newSession} disabled={loading} style={{ fontSize: 12 }}>New</button>
+            <button onClick={async () => { try { setSessionsLoading(true); const res = await axios.get(`${API_BASE}/api/sessions`); setSessions(res.data?.sessions || []); } finally { setSessionsLoading(false); } }} style={{ fontSize: 12 }}>Refresh</button>
+          </div>
+        </div>
+        <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
+          {sessionsLoading ? (
+            <div style={{ padding: 8, fontSize: 12, opacity: 0.7 }}>Loading...</div>
+          ) : (
+            (sessions || []).map(s => (
+              <div key={s.session_id}
+                   onClick={() => openSession(s.session_id)}
+                   style={{ padding: 8, cursor: 'pointer', background: selectedSessionId === s.session_id ? '#f3f4f6' : 'transparent', borderRadius: 6, marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.session_id}</div>
+                <div style={{ fontSize: 12, opacity: 0.7, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{s.last_text || ''}</div>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>{s.last_timestamp ? new Date(s.last_timestamp).toLocaleString() : ''}</div>
+              </div>
+            ))
+          )}
+        </div>
+      </Drawer>
     </section>
   );
 }
