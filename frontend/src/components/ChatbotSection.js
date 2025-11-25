@@ -21,10 +21,11 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
   const [mode, setMode] = useState(() => localStorage.getItem('chat_mode') || 'llm');
   const [model, setModel] = useState(() => localStorage.getItem('chat_model') || 'gpt-4o-mini');
   const chatEndRef = useRef(null);
-  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000';
   const [sessions, setSessions] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState(() => localStorage.getItem('sessionId') || '');
+  const [selectedSessionTitle, setSelectedSessionTitle] = useState('');
   const [openSessions, setOpenSessions] = useState(false);
 
   useEffect(() => {
@@ -36,7 +37,12 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
       try {
         setSessionsLoading(true);
         const res = await axios.get(`${API_BASE}/api/sessions`);
-        setSessions(res.data?.sessions || []);
+        const list = res.data?.sessions || [];
+        setSessions(list);
+        if (selectedSessionId) {
+          const found = list.find(s => s.session_id === selectedSessionId);
+          if (found && found.title) setSelectedSessionTitle(found.title);
+        }
       } catch {
         setSessions([]);
       } finally {
@@ -46,7 +52,7 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
     load();
   }, [API_BASE]);
 
-  const openSession = async (sid) => {
+  const openSession = async (sid, title) => {
     try {
       setSelectedSessionId(sid);
       localStorage.setItem('sessionId', sid);
@@ -55,6 +61,7 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
       const mapped = rows.map(r => ({ sender: r.sender, text: r.text, timestamp: r.timestamp }));
       setMessages(mapped.length ? mapped : [{ sender: 'agent', text: 'Hi! What can I help you with?' }]);
       setOpenSessions(false);
+      setSelectedSessionTitle(title || '');
     } catch {
       setMessages([{ sender: 'agent', text: 'Hi! What can I help you with?' }]);
     }
@@ -64,6 +71,7 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
     const sid = (window.crypto?.randomUUID?.() || Date.now().toString());
     localStorage.setItem('sessionId', sid);
     setSelectedSessionId(sid);
+    setSelectedSessionTitle('');
     setMessages([{ sender: 'agent', text: 'Hi! What can I help you with?' }]);
     setInput('');
   };
@@ -73,6 +81,8 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
     if (!input.trim() || loading) return;
     const userMsg = { sender: 'user', text: input };
     setMessages(msgs => [...msgs, userMsg]);
+    // If no title yet for this session, use the first user input (trimmed)
+    setSelectedSessionTitle(prev => prev && prev.length ? prev : input.trim().replace(/\s+/g, ' ').slice(0, 80));
     setInput('');
     setLoading(true);
     try {
@@ -147,29 +157,66 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
 
   return (
     <section className="chatbot-section">
-      <div className="chatbot-header">
-        <div className="chatbot-title">Chatbot</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label htmlFor="mode-select" style={{ fontSize: 12, opacity: 0.8 }}>Mode</label>
-          <select id="mode-select" value={mode} onChange={handleModeChange}>
-            <option value="llm">LLM-driven</option>
-            <option value="rule">Rule-based</option>
-          </select>
-          {mode === 'llm' && (
-            <>
-              <label htmlFor="model-select" style={{ fontSize: 12, opacity: 0.8 }}>Model</label>
-              <select id="model-select" value={model} onChange={handleModelChange}>
-                <option value="gpt-4o-mini">gpt-4o-mini</option>
-                <option value="gpt-4o">gpt-4o</option>
-                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-                <option value="gpt-4.1">gpt-4.1</option>
-                <option value="gpt-5">gpt-5</option>
-                <option value="gpt-5.1">gpt-5.1</option>
-              </select>
-            </>
-          )}
-          <button onClick={() => setOpenSessions(true)} style={{ fontSize: 12 }}>Sessions</button>
-          <button className="btn-clear" onClick={handleClear}>Clear Chat</button>
+      <div className="chatbot-header" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Top row: title + settings */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ padding: 8, background: 'rgba(255,255,255,0.18)', borderRadius: 10 }}>🤖</div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div className="chatbot-title">Hardware Store Assistant</div>
+              <div style={{ fontSize: 12, opacity: 0.9 }}>Ask me anything about tools and hardware</div>
+            </div>
+          </div>
+          <button className="btn-clear" onClick={handleClear} style={{ background: '#fff', color: '#111' }}>Clear chat</button>
+        </div>
+
+        {/* Controls row: Model | Session */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label htmlFor="model-select" style={{ display: 'block', fontSize: 12, opacity: 0.95, color: '#eef2ff', marginBottom: 6 }}>Model</label>
+            <select
+              id="model-select"
+              value={model}
+              onChange={handleModelChange}
+              style={{
+                width: '100%',
+                background: 'rgba(255,255,255,0.9)',
+                border: '1px solid rgba(0,0,0,0.08)',
+                borderRadius: 10,
+                padding: '10px 12px'
+              }}
+            >
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              <option value="gpt-4.1">gpt-4.1</option>
+              <option value="gpt-5">gpt-5</option>
+              <option value="gpt-5.1">gpt-5.1</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, opacity: 0.95, color: '#eef2ff', marginBottom: 6 }}>Session</label>
+            <button
+              onClick={() => setOpenSessions(true)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                background: 'rgba(255,255,255,0.9)',
+                border: '1px solid rgba(0,0,0,0.08)',
+                borderRadius: 10,
+                padding: '10px 12px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              <span aria-hidden>🕒</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {selectedSessionTitle || 'Session 1'}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
       <div className="chatbot-messages">
@@ -207,9 +254,9 @@ export default function ChatbotSection({ selectedProductSKU, setSelectedProductS
           ) : (
             (sessions || []).map(s => (
               <div key={s.session_id}
-                   onClick={() => openSession(s.session_id)}
+                   onClick={() => openSession(s.session_id, s.title)}
                    style={{ padding: 8, cursor: 'pointer', background: selectedSessionId === s.session_id ? '#f3f4f6' : 'transparent', borderRadius: 6, marginBottom: 6 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.session_id}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title || s.session_id}</div>
                 <div style={{ fontSize: 12, opacity: 0.7, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{s.last_text || ''}</div>
                 <div style={{ fontSize: 11, opacity: 0.6 }}>{s.last_timestamp ? new Date(s.last_timestamp).toLocaleString() : ''}</div>
               </div>

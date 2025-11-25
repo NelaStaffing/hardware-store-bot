@@ -221,11 +221,25 @@ export default function ShoppingCart() {
     const qty = item.quantity || 1;
     return sum + ((parseFloat(item.price) || 0) * qty);
   }, 0);
+  const itemCount = cart.reduce((sum, item) => sum + (item.quantity || 1), 0);
 
   return (
-    <section className="cart-section" style={{ maxWidth: 480, margin: '0 auto', padding: 24 }}>
-      <h2 style={{ color: '#007aff', marginBottom: 24 }}>Shopping List</h2>
-      <div className="cart-list" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <section className="cart-section" style={{ maxWidth: 480, margin: '0 auto', padding: 0 }}>
+      <div style={{ padding: 24, background: 'linear-gradient(135deg, #059669, #047857)', color: '#fff', borderRadius: '16px 16px 0 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ padding: 8, background: 'rgba(255,255,255,0.22)', borderRadius: 10 }}>🛒</div>
+            <div style={{ fontWeight: 700 }}>Shopping Cart</div>
+          </div>
+          {cart.length > 0 && (
+            <div style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.22)', borderRadius: 20, fontWeight: 600 }}>{itemCount}</div>
+          )}
+        </div>
+        <div style={{ fontSize: 13, opacity: 0.9 }}>
+          {cart.length === 0 ? 'Your cart is empty' : `${cart.length} item${cart.length !== 1 ? 's' : ''} in cart`}
+        </div>
+      </div>
+      <div className="cart-list" style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 24 }}>
         {cart.length === 0 ? (
           <div style={{ color: '#888', textAlign: 'center' }}>Your shopping cart is empty.</div>
         ) : cart.map(item => (
@@ -279,11 +293,14 @@ export default function ShoppingCart() {
           </div>
         ))}
       </div>
-      <div className="cart-total" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, fontWeight: 600, fontSize: 18 }}>
-        <span>Total:</span>
-        <span>${total.toFixed(2)}</span>
+      <div className="cart-total" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 24px 0 24px', fontWeight: 600 }}>
+        <span style={{ color: '#475569' }}>Total:</span>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 22, color: '#0f172a' }}>${total.toFixed(2)}</div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>{itemCount} item{itemCount !== 1 ? 's' : ''}</div>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 16, marginTop: 24 }}>
+      <div style={{ display: 'flex', gap: 16, margin: '16px 24px 24px 24px' }}>
         <button
           className="btn-clear"
           style={{ background: '#bdbdbd', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, cursor: 'pointer', flex: 1 }}
@@ -294,7 +311,7 @@ export default function ShoppingCart() {
         </button>
         <button
           className="btn-checkout"
-          style={{ background: '#007aff', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, cursor: 'pointer', flex: 1 }}
+          style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, cursor: 'pointer', flex: 1 }}
           onClick={handlePrintList}
           disabled={cart.length === 0}
         >

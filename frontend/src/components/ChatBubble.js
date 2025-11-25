@@ -1,5 +1,49 @@
 import React from 'react';
 
+// Inline SVG alternatives to lucide-react icons (no extra dependency)
+function BotIcon({ size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3v4" />
+      <rect x="7" y="7" width="10" height="10" rx="2" />
+      <path d="M5 11H3" />
+      <path d="M21 11h-2" />
+      <circle cx="10" cy="12" r="1" />
+      <circle cx="14" cy="12" r="1" />
+      <path d="M8 16h8" />
+    </svg>
+  );
+}
+
+function UserIcon({ size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M20 21a8 8 0 0 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
 // Basic markdown to HTML (bold, italic, line breaks, lists)
 function formatMarkdown(text) {
   if (!text) return '';
@@ -78,16 +122,44 @@ export default function ChatBubble({ message, onProductClick }) {
     }
   }
 
+  const avatar = (
+    <div
+      aria-hidden
+      style={{
+        width: 32,
+        height: 32,
+        minWidth: 32,
+        minHeight: 32,
+        maxWidth: 32,
+        maxHeight: 32,
+        flex: '0 0 32px',
+        borderRadius: 8,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: isAgent ? 'linear-gradient(135deg, #60a5fa, #2563eb)' : '#1f2937',
+        color: '#fff',
+        boxShadow: isAgent ? '0 4px 12px rgba(37,99,235,0.35)' : '0 3px 10px rgba(0,0,0,0.25)',
+        marginTop: 4,
+      }}
+      title={isAgent ? 'Assistant' : 'You'}
+    >
+      {isAgent ? <BotIcon size={16} /> : <UserIcon size={16} />}
+    </div>
+  );
+
   return (
-    <div style={{ display: 'flex', flexDirection: isAgent ? 'row' : 'row-reverse', alignItems: 'flex-end', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: isAgent ? 'row' : 'row-reverse', alignItems: 'flex-start', gap: 12 }}>
+      {avatar}
       <div style={{
-        background: isAgent ? '#f3f4f6' : '#d1eaff',
-        color: '#222',
+        background: isAgent ? '#ffffff' : 'linear-gradient(135deg, #2563eb, #1e40af)',
+        color: isAgent ? '#374151' : '#ffffff',
+        border: isAgent ? '1px solid #e5e7eb' : 'none',
         borderRadius: 14,
-        padding: '10px 16px',
-        maxWidth: 480,
+        padding: '12px 16px',
+        maxWidth: 520,
         fontSize: 16,
-        boxShadow: isAgent ? '0 1px 4px #0001' : '0 2px 8px #6cf2',
+        boxShadow: isAgent ? '0 2px 10px rgba(0,0,0,0.06)' : '0 6px 16px rgba(37,99,235,0.35)',
         wordBreak: 'break-word',
         whiteSpace: 'pre-line',
       }}>
@@ -98,17 +170,19 @@ export default function ChatBubble({ message, onProductClick }) {
               {productList.products.map((p, i) => (
                 <div
                   key={i}
-                  style={{ background: '#fff', borderRadius: 10, boxShadow: '0 1px 4px #0001', padding: 12, display: 'flex', flexDirection: 'column', gap: 4, cursor: 'pointer' }}
+                  style={{ background: 'linear-gradient(135deg, #f8fafc, #ffffff)', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', padding: 12, display: 'flex', flexDirection: 'column', gap: 6, cursor: 'pointer' }}
                   onClick={() => onProductClick && onProductClick(p.SKU)}
                   tabIndex={0}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onProductClick && onProductClick(p.SKU); }}
                   aria-label={`Preview ${p.name}`}
                   role="button"
                 >
-                  <div style={{ fontWeight: 600, fontSize: 16 }}>{p.name}</div>
-                  <div style={{ color: '#388e3c', fontWeight: 500 }}>${p.price}</div>
-                  <div style={{ color: '#888', fontSize: 13 }}>SKU: {p.SKU}</div>
-                  {p.aisle && <div style={{ color: '#1976d2', fontSize: 13 }}>Aisle: {p.aisle}</div>}
+                  <div style={{ fontWeight: 600, fontSize: 16, color: '#0f172a' }}>{p.name}</div>
+                  <div style={{ color: '#16a34a', fontWeight: 600 }}>${p.price}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: '#334155', background: '#f1f5f9', border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: 8 }}>SKU: {p.SKU}</span>
+                    {p.aisle && <span style={{ fontSize: 13, color: '#475569' }}>Location: {p.aisle}{p.section ? ` ${p.section}` : ''}</span>}
+                  </div>
                 </div>
               ))}
             </div>
@@ -119,7 +193,7 @@ export default function ChatBubble({ message, onProductClick }) {
         ) : (
           text
         )}
-        <div style={{ fontSize: 11, color: '#888', marginTop: 4, textAlign: isAgent ? 'left' : 'right' }}>{message.timestamp}</div>
+        <div style={{ fontSize: 11, color: isAgent ? '#9ca3af' : '#e0e7ff', marginTop: 6, textAlign: isAgent ? 'left' : 'right' }}>{message.timestamp}</div>
       </div>
     </div>
   );

@@ -148,9 +148,10 @@
 
 .chatbot-header {
   display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 8px;
   padding: 18px 26px 18px 26px;
   font-size: 20px;
   font-weight: 600;
@@ -248,7 +249,8 @@
 .cart-section {
   min-width: 260px;
   max-width: 340px;
-  max-height: 580px;
+  min-height: 580px;   /* ensure similar column height */
+  max-height: 640px;   /* align with chatbot max height */
   overflow-y: auto;
 }
 

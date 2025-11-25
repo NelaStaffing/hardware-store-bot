@@ -75,6 +75,29 @@ app.post('/api/chat', async (req, res) => {
         text: message,
         timestamp: new Date().toISOString()
       });
+
+      // If chat_sessions.title is empty for this session, set it from the user's first input
+      if (sessionId) {
+        try {
+          const titleCandidate = String(message || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 80);
+          if (titleCandidate) {
+            const { data: sess } = await supabase
+              .from('chat_sessions')
+              .select('title')
+              .eq('session_id', sessionId)
+              .maybeSingle();
+            if (!sess || !sess.title) {
+              await supabase
+                .from('chat_sessions')
+                .update({ title: titleCandidate })
+                .eq('session_id', sessionId);
+            }
+          }
+        } catch (_) { /* ignore title update errors */ }
+      }
     }
 
     // Rule-based mode: bypass LLM agent
@@ -181,6 +204,43 @@ app.get('/api/sessions', async (req, res) => {
         sessions.push({ session_id: sid, last_timestamp: m.timestamp, last_text: m.text || '' });
       }
     }
+
+    // Overlay stored titles from chat_sessions if available
+    try {
+      const ids = sessions.map(s => s.session_id);
+      if (ids.length) {
+        const { data: stored } = await supabase
+          .from('chat_sessions')
+          .select('session_id,title')
+          .in('session_id', ids);
+        const byId = Object.fromEntries((stored || []).map(r => [r.session_id, r.title]));
+        for (const s of sessions) {
+          if (byId[s.session_id]) s.title = byId[s.session_id];
+        }
+      }
+    } catch (_) { /* ignore title fetch errors */ }
+
+    // Fallback: compute a title from first USER message when not stored
+    for (const s of sessions) {
+      if (s.title) continue;
+      try {
+        const { data: firstMsg } = await supabase
+          .from('chat_messages')
+          .select('text,timestamp')
+          .eq('session_id', s.session_id)
+          .eq('sender', 'user')
+          .order('timestamp', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        const titleRaw = (firstMsg && firstMsg.text) ? String(firstMsg.text) : '';
+        const title = titleRaw
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 80);
+        if (title) s.title = title;
+      } catch (_) { /* ignore per-session errors */ }
+    }
+
     res.json({ sessions });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
